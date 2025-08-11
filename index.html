@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Raspadinha Online com Painel Admin</title>
+<style>
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0; padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    color: white;
+    padding: 20px;
+    user-select: none;
+  }
+  h1 {
+    margin-bottom: 20px;
+    text-shadow: 0 0 10px rgba(0,0,0,0.3);
+  }
+  #scratchContainer {
+    position: relative;
+    width: 320px;
+    max-width: 90vw;
+    height: 160px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    overflow: hidden;
+    background: #fff;
+    margin-bottom: 15px;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    border-radius: 16px;
+    width: 100%;
+    height: 100%;
+  }
+  #prizeCanvas {
+    z-index: 1;
+    background: #fff;
+  }
+  #scratchCanvas {
+    z-index: 2;
+    cursor: pointer;
+    background: #bbb;
+  }
+  #message {
+    min-height: 40px;
+    font-size: 1.3rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 20px;
+    text-shadow: 0 0 7px rgba(0,0,0,0.5);
+  }
+  button {
+    padding: 12px 28px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #2575fc;
+    background: white;
+    border: none;
+    border-radius: 25px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: background-color 0.3s ease;
+    margin-bottom: 20px;
+  }
+  button:hover {
+    background: #dbe9ff;
+  }
+  /* Admin button */
+  #adminBtn {
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    background: #fff;
+    color: #2575fc;
+    border-radius: 30px;
+    padding: 8px 16px;
+    font-weight: 700;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+    user-select: none;
+    z-index: 9999;
+  }
+  #adminPanel {
+    position: fixed;
+    top: 60px;
+    right: 15px;
+    width: 320px;
+    max-width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: #222254;
+    border-radius: 12px;
+    padding: 15px 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+    color: white;
+    display: none;
+    z-index: 10000;
+  }
+  #adminPanel h2 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-weight: 700;
+  }
+  .prizeRow {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .prizeRow input[type=text],
+  .prizeRow input[type=number] {
+    flex: 1;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: none;
+    font-size: 1rem;
+  }
+  .prizeRow input[type=number] {
+    max-width: 80px;
+  }
+  .prizeRow button {
+    background: #ff5555;
+    color: white;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: none;
+    margin: 0;
+  }
+  #addPrizeBtn {
+    background: #55ff55;
+    width: 100%;
+  }
+  #savePrizesBtn {
+    background: #2575fc;
+    width: 100%;
+  }
+  /* Responsive */
+  @media (max-width: 400px) {
+    #scratchContainer {
+      height: 140px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>Raspadinha Online</h1>
+<div id="scratchContainer">
+  <canvas id="prizeCanvas" width="320" height="160"></canvas>
+  <canvas id="scratchCanvas" width="320" height="160"></canvas>
+</div>
+<div id="message"></div>
+<button id="resetBtn">Jogar Novamente</button>
+
+<button id="adminBtn" title="Abrir painel admin">Admin</button>
+
+<div id="adminPanel">
+  <h2>Painel de Prêmios</h2>
+  <div id="prizesList"></div>
+  <button id="addPrizeBtn">+ Adicionar Prêmio</button>
+  <button id="savePrizesBtn">Salvar Alterações</button>
+</div>
+
+<script>
+  const prizeCanvas = document.getElementById('prizeCanvas');
+  const prizeCtx = prizeCanvas.getContext('2d');
+  const scratchCanvas = document.getElementById('scratchCanvas');
+  const scratchCtx = scratchCanvas.getContext('2d');
+  const messageEl = document.getElementById('message');
+  const resetBtn = document.getElementById('resetBtn');
+
+  const adminBtn = document.getElementById('adminBtn');
+  const adminPanel = document.getElementById('adminPanel');
+  const prizesList = document.getElementById('prizesList');
+  const addPrizeBtn = document.getElementById('addPrizeBtn');
+  const savePrizesBtn = document.getElementById('savePrizesBtn');
+
+  let isDrawing = false;
+  let lastPoint = null;
+  let gameFinished = false;
+
+  // Dados dos prêmios — padrão inicial
+  let prizes = [
+    {text: 'R$ 100,00', emoji: '💰', weight: 5},
+    {text: 'R$ 50,00', emoji: '🎉', weight: 10},
+    {text: 'R$ 20,00', emoji: '🍀', weight: 20},
+    {text: 'R$ 5,00', emoji: '⭐', weight: 30},
+    {text: 'Sem prêmio', emoji: '😞', weight: 35}
+  ];
+
+  // Salvar/Carregar prêmios no localStorage para persistir entre sessões
+  function loadPrizes() {
+    const saved = localStorage.getItem('raspadinhaPrizes');
+    if(saved) {
+      try {
+        prizes = JSON.parse(saved);
+      } catch(e) {
+        console.warn('Erro ao carregar prêmios do localStorage', e);
+      }
+    }
+  }
+  function savePrizes() {
+    localStorage.setItem('raspadinhaPrizes', JSON.stringify(prizes));
+  }
+
+  // Função para sortear prêmio baseado em peso
+  function weightedRandom(prizes) {
+    const sum = prizes.reduce((acc, prize) => acc + Number(prize.weight), 0);
+    let rand = Math.random() * sum;
+    for (const prize of prizes) {
+      if (rand < prize.weight) return prize;
+      rand -= prize.weight;
+    }
+    return prizes[prizes.length -1]; // fallback
+  }
+
+  let currentPrize;
+
+  function init() {
+    loadPrizes();
+    gameFinished = false;
+    messageEl.textContent = '';
+    scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+    prizeCtx.clearRect(0, 0, prizeCanvas.width, prizeCanvas.height);
+
+    currentPrize = weightedRandom(prizes);
+
+    drawPrize();
+    coverScratchArea();
+
+    attachEvents();
+  }
+
+  function drawPrize() {
+    prizeCtx.fillStyle = '#fff';
+    prizeCtx.fillRect(0, 0, prizeCanvas.width, prizeCanvas.height);
+
+    prizeCtx.fillStyle = '#333';
+    prizeCtx.font = 'bold 64px Arial';
+    prizeCtx.textAlign = 'center';
+    prizeCtx.textBaseline = 'middle';
+    prizeCtx.fillText(currentPrize.emoji, prizeCanvas.width / 2, prizeCanvas.height / 3);
+
+    prizeCtx.font = 'bold 32px Arial';
+    prizeCtx.fillText(currentPrize.text, prizeCanvas.width / 2, prizeCanvas.height / 1.6);
+  }
+
+  function coverScratchArea() {
+    scratchCtx.fillStyle = '#bbb';
+    scratchCtx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = 20;
+    patternCanvas.height = 20;
+    const pctx = patternCanvas.getContext('2d');
+
+    pctx.fillStyle = '#ccc';
+    pctx.fillRect(0, 0, 20, 20);
+    pctx.strokeStyle = '#999';
+    pctx.lineWidth = 2;
+    pctx.beginPath();
+    pctx.moveTo(0,0);
+    pctx.lineTo(20,20);
+    pctx.moveTo(20,0);
+    pctx.lineTo(0,20);
+    pctx.stroke();
+
+    const pattern = scratchCtx.createPattern(patternCanvas, 'repeat');
+    scratchCtx.fillStyle = pattern;
+    scratchCtx.fillRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+  }
+
+  function getPointerPos(evt) {
+    const rect = scratchCanvas.getBoundingClientRect();
+    if(evt.touches && evt.touches.length > 0) {
+      return {
+        x: (evt.touches[0].clientX - rect.left) * (scratchCanvas.width / rect.width),
+        y: (evt.touches[0].clientY - rect.top) * (scratchCanvas.height / rect.height)
+      };
+    } else {
+      return {
+        x: (evt.clientX - rect.left) * (scratchCanvas.width / rect.width),
+        y: (evt.clientY - rect.top) * (scratchCanvas.height / rect.height)
+      };
+    }
+  }
+
+  function scratch(x, y) {
+    scratchCtx.globalCompositeOperation = 'destination-out';
+    scratchCtx.beginPath();
+    scratchCtx.arc(x, y, 25, 0, Math.PI * 2, false);
+    scratchCtx.fill();
+    scratchCtx.globalCompositeOperation = 'source-over';
+  }
+
+  function checkScratchCompletion() {
+    const imageData = scratchCtx.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height);
+    let clearedPixels = 0;
+    for (let i = 3; i < imageData.data.length; i += 4) {
+      if (imageData.data[i] === 0) clearedPixels++;
+    }
+    const clearedPercent = (clearedPixels / (scratchCanvas.width * scratchCanvas.height)) * 100;
+
+    if (clearedPercent > 50 && !gameFinished) {
+      finishGame();
+    }
+  }
+
+  function finishGame() {
+    gameFinished = true;
+
+    if(currentPrize.text.toLowerCase().includes('sem prêmio') || currentPrize.weight == 0) {
+      messageEl.textContent = 'Que pena! Sem prêmio desta vez. Tente novamente!';
+    } else {
+      messageEl.textContent = `🎉 Parabéns! Você ganhou ${currentPrize.text} ${currentPrize.emoji}`;
+    }
+
+    detachEvents();
+  }
+
+  function startDrawing(evt) {
+    if(gameFinished) return;
+    evt.preventDefault();
+    isDrawing = true;
+    const pos = getPointerPos(evt);
+    scratch(pos.x, pos.y);
+    lastPoint = pos;
+  }
+
+  function stopDrawing(evt) {
+    if(gameFinished) return;
+    evt.preventDefault();
+    isDrawing = false;
+    lastPoint = null;
+    checkScratchCompletion();
+  }
+
+  function draw(evt) {
+    if(gameFinished || !isDrawing) return;
+    evt.preventDefault();
+    const pos = getPointerPos(evt);
+
+    const dist = Math.hypot(pos.x - lastPoint.x, pos.y - lastPoint.y);
+    const angle = Math.atan2(pos.y - lastPoint.y, pos.x - lastPoint.x);
+    for(let i=0; i<dist; i+=5) {
+      const x = lastPoint.x + Math.cos(angle)*i;
+      const y = lastPoint.y + Math.sin(angle)*i;
+      scratch(x,y);
+    }
+    lastPoint = pos;
+  }
+
+  function attachEvents() {
+    scratchCanvas.addEventListener('mousedown', startDrawing);
+    scratchCanvas.addEventListener('mouseup', stopDrawing);
+    scratchCanvas.addEventListener('mouseout', stopDrawing);
+    scratchCanvas.addEventListener('mousemove', draw);
+    scratchCanvas.addEventListener('touchstart', startDrawing, {passive:false});
+    scratchCanvas.addEventListener('touchend', stopDrawing);
+    scratchCanvas.addEventListener('touchcancel', stopDrawing);
+    scratchCanvas.addEventListener('touchmove', draw, {passive:false});
+  }
+
+  function detachEvents() {
+    scratchCanvas.removeEventListener('mousedown', startDrawing);
+    scratchCanvas.removeEventListener('mouseup', stopDrawing);
+    scratchCanvas.removeEventListener('mouseout', stopDrawing);
+    scratchCanvas.removeEventListener('mousemove', draw);
+    scratchCanvas.removeEventListener('touchstart', startDrawing);
+    scratchCanvas.removeEventListener('touchend', stopDrawing);
+    scratchCanvas.removeEventListener('touchcancel', stopDrawing);
+    scratchCanvas.removeEventListener('touchmove', draw);
+  }
+
+  resetBtn.addEventListener('click', () => {
+    init();
+  });
+
+  adminBtn.addEventListener('click', () => {
+    if(adminPanel.style.display === 'block') {
+      adminPanel.style.display = 'none';
+    } else {
+      adminPanel.style.display = 'block';
+      renderAdminPrizes();
+    }
+  });
+
+  addPrizeBtn.addEventListener('click', () => {
+    prizes.push({text: '', emoji: '', weight: 1});
+    renderAdminPrizes();
+  });
+
+  savePrizesBtn.addEventListener('click', () => {
+    // Pega valores do painel e atualiza prizes
+    const rows = prizesList.querySelectorAll('.prizeRow');
+    const newPrizes = [];
+    let valid = true;
+
+    rows.forEach(row => {
+      const text = row.querySelector('.prizeText').value.trim();
+      const emoji = row.querySelector('.prizeEmoji').value.trim();
+      const weight = Number(row.querySelector('.prizeWeight').value);
+      if(text === '' || emoji === '' || isNaN(weight) || weight < 0) {
+        valid = false;
+      } else {
+        newPrizes.push({text, emoji, weight});
+      }
+    });
+
+    if(!valid || newPrizes.length === 0) {
+      alert('Por favor, preencha todos os campos corretamente e com peso >= 0.');
+      return;
+    }
+
+    prizes = newPrizes;
+    savePrizes();
+    init();
+    alert('Prêmios atualizados com sucesso!');
+  });
+
+  function renderAdminPrizes() {
+    prizesList.innerHTML = '';
+    prizes.forEach((prize, idx) => {
+      const div = document.createElement('div');
+      div.className = 'prizeRow';
+
+      const textInput = document.createElement('input');
+      textInput.type = 'text';
+      textInput.placeholder = 'Texto do prêmio';
+      textInput.value = prize.text;
+      textInput.className = 'prizeText';
+
+      const emojiInput = document.createElement('input');
+      emojiInput.type = 'text';
+      emojiInput.placeholder = 'Emoji';
+      emojiInput.value = prize.emoji;
+      emojiInput.className = 'prizeEmoji';
+      emojiInput.maxLength = 2;
+
+      const weightInput = document.createElement('input');
+      weightInput.type = 'number';
+      weightInput.min = '0';
+      weightInput.value = prize.weight;
+      weightInput.className = 'prizeWeight';
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'X';
+      delBtn.title = 'Remover prêmio';
+      delBtn.addEventListener('click', () => {
+        prizes.splice(idx, 1);
+        renderAdminPrizes();
+      });
+
+      div.appendChild(textInput);
+      div.appendChild(emojiInput);
+      div.appendChild(weightInput);
+      div.appendChild(delBtn);
+      prizesList.appendChild(div);
+    });
+  }
+
+  // Inicializa jogo ao carregar
+  init();
+
+</script>
+
+</body>
+</html>
